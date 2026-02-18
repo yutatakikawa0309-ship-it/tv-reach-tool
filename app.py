@@ -1,93 +1,88 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy.optimize import minimize
 import plotly.express as px
 
-# 1. ページ設定（ダークモード設定はStreamlitの基本設定に任せる）
-st.set_page_config(page_title="TV Analytics Pro", layout="wide")
+# 1. ページ設定
+st.set_page_config(page_title="TV Strategy Planner", layout="wide")
 
-# 2. ヘッダー（シンプルかつモダンに）
-st.title("📊 TV Analytics Pro")
-st.caption("Marketing Dashboard for Strategic Optimization")
+# --- ダミーデータの生成 (裏側で保持するデータ) ---
+def get_dummy_data():
+    # タイム番組リスト
+    programs = pd.DataFrame({
+        "番組名": ["朝のニュースワイド", "ゴールデン歌謡祭", "日曜ドラマ特選", "深夜のアニメ枠", "土曜スポーツLIVE"],
+        "エリア": ["関東", "関西", "名古屋", "関東", "名古屋"],
+        "視聴率(想定)": [5.2, 12.5, 10.8, 2.1, 4.5],
+        "コスト(万円)": [150, 500, 450, 50, 100],
+        "ターゲット適合度": ["High", "High", "Mid", "Low", "Mid"]
+    })
+    # スポット過去実績
+    past_spots = pd.DataFrame({
+        "枠名": ["全日", "逆L", "コの字", "ヨの字"],
+        "平均コスト単価": [25000, 35000, 45000, 55000],
+        "期待リーチ率": [15.2, 22.5, 28.0, 35.5]
+    })
+    return programs, past_spots
 
-# エリアデータ
-areas = ["関東", "関西", "中部", "九州", "その他"]
-area_master = {
-    "関東": {"price": 150000, "pop": 0.35, "m": 90, "a": 0.002},
-    "関西": {"price": 80000,  "pop": 0.15, "m": 88, "a": 0.0025},
-    "中部": {"price": 60000,  "pop": 0.10, "m": 85, "a": 0.003},
-    "九州": {"price": 40000,  "pop": 0.10, "m": 85, "a": 0.0035},
-    "その他": {"price": 30000, "pop": 0.30, "m": 80, "a": 0.004}
-}
+programs_df, spots_df = get_dummy_data()
 
-# 3. サイドバー
+# --- メイン画面 ---
+st.title("🚀 TV Media Mix Strategy")
+st.caption("Multiple Brands & Regional Optimization Dashboard")
+
+# 2. 基本設定（サイドバー）
 with st.sidebar:
-    st.header("Campaign Settings")
-    total_budget = st.number_input("Total Budget (JPY)", value=100000000, step=1000000)
-    brand = st.text_input("Project Name", "Quarterly Campaign")
-    st.divider()
-    st.info("数値を入力後、中央のボタンを押してください。")
-
-# 4. メイン指標（YouTube Studio風のカードレイアウト）
-# ボーダー付きのコンテナで囲むことで、デザインをスマートに見せます
-with st.container(border=True):
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Target Audience", "42.5M", "High")
-    col2.metric("Total Budget", f"¥{total_budget:,}")
-    col3.metric("Regions", len(areas))
-
-st.write("") # スペース空け
-
-# 5. 入力エリア
-st.subheader("📍 Input Data")
-with st.expander("詳細データを入力する", expanded=True):
-    t_inputs = []
-    # 2段に分けてスッキリさせる
-    rows = [areas[:3], areas[3:]]
-    for row in rows:
-        cols = st.columns(len(row))
-        for idx, a in enumerate(row):
-            with cols[idx]:
-                grp = st.number_input(f"{a} GRP", value=0, key=f"g_{a}")
-                cost = st.number_input(f"{a} Cost", value=0, key=f"c_{a}")
-                # リストに追加するために元のエリア名を保持
-                area_idx = areas.index(a)
-                t_inputs.append({"area": a, "t_grp": grp, "t_cost": cost, "order": area_idx})
-
-# データの並び順を元に戻す
-t_inputs = sorted(t_inputs, key=lambda x: x['order'])
-
-# 6. 計算実行
-st.write("")
-if st.button("RUN OPTIMIZATION", use_container_width=True, type="primary"):
-    time_cost = sum(i['t_cost'] for i in t_inputs)
-    spot_budget = total_budget - time_cost
+    st.header("🏢 基本設定")
+    num_brands = st.number_input("管理ブランド数", min_value=1, max_value=5, value=2)
+    selected_areas = st.multiselect("対象エリア", ["関東", "関西", "名古屋", "福岡", "札幌"], default=["関東", "関西", "名古屋"])
     
-    if spot_budget < 0:
-        st.error("Budget Exceeded! Please adjust your settings.")
-    else:
-        def obj(x):
-            score = 0
-            for i, a in enumerate(areas):
-                m, alpha = area_master[a]['m'], area_master[a]['a']
-                score += m * (1 - np.exp(-alpha * (t_inputs[i]['t_grp'] + x[i]))) * area_master[a]['pop']
-            return -score
-        
-        cons = ({'type': 'ineq', 'fun': lambda x: spot_budget - sum(x[i] * area_master[areas[i]]['price'] for i in range(len(areas)))})
-        res = minimize(obj, np.zeros(len(areas)), bounds=[(0, None)]*len(areas), constraints=cons)
-        
-        # グラフと表
-        st.subheader("📊 Optimization Result")
-        df = pd.DataFrame({"Region": areas, "Optimized GRP": res.x.round(1)})
-        
-        chart_col, table_col = st.columns([2, 1])
-        with chart_col:
-            fig = px.bar(df, x="Region", y="Optimized GRP", 
-                         color="Optimized GRP",
-                         color_continuous_scale="Reds", # YouTube風の赤系
-                         template="plotly_white")
-            st.plotly_chart(fig, use_container_width=True)
+    st.divider()
+    st.info("ブランドごとの詳細を設定してください。")
+
+# 3. ブランド別詳細入力
+st.subheader("📋 ブランド別・プランニング詳細")
+brand_configs = []
+
+for i in range(num_brands):
+    with st.expander(f"ブランド {i+1} の設定", expanded=True):
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            name = st.text_input(f"ブランド名", value=f"Brand {chr(65+i)}", key=f"bn_{i}")
+            budget = st.number_input(f"月間予算 (円)", value=50000000, step=1000000, key=f"bb_{i}")
+        with c2:
+            length = st.selectbox(f"素材秒数", [15, 30], key=f"bl_{i}")
+            target = st.selectbox(f"ターゲット", ["F1-F2", "M1-M2", "ALL", "Teen"], key=f"bt_{i}")
+        with c3:
+            kpi = st.radio(f"KPI設定", ["TRP", "Reach"], key=f"bk_{i}")
+        with c4:
+            ratio = st.slider(f"タイム比率 (%)", 0, 100, 40, key=f"br_{i}")
             
-        with table_col:
-            st.dataframe(df, use_container_width=True, hide_index=True)
+        brand_configs.append({
+            "name": name, "budget": budget, "length": length, 
+            "target": target, "kpi": kpi, "time_ratio": ratio
+        })
+
+# 4. 最適化実行
+st.write("")
+if st.button("STRATEGY GENERATE (プラン実行)", use_container_width=True, type="primary"):
+    
+    for b in brand_configs:
+        st.divider()
+        st.header(f"✨ Result: {b['name']}")
+        
+        # 予算計算
+        time_budget = b['budget'] * (b['time_ratio'] / 100)
+        spot_budget = b['budget'] - time_budget
+        
+        # アウトプット表示
+        m1, m2 = st.columns(2)
+        m1.metric("タイム配分予算", f"¥{int(time_budget):,}")
+        m2.metric("スポット配分予算", f"¥{int(spot_budget):,}")
+        
+        tab1, tab2 = st.tabs(["📺 推奨タイム番組", "🎯 スポット出稿プラン"])
+        
+        with tab1:
+            st.write("### 購入すべきテレビタイム番組 (シミュレーション)")
+            # 予算とエリアに合う番組を抽出
+            rec_programs = programs_df[programs_df['エリア'].isin(selected_areas)].copy()
+            rec_programs['推奨

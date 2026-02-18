@@ -3,21 +3,34 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import minimize
 import plotly.express as px
+import plotly.graph_objects as go
 
-# ページ設定
-st.set_page_config(page_title="TV Reach Maximize Tool", layout="wide")
+# ページ設定：ダークモード風のカスタムCSS
+st.set_page_config(page_title="TV Optimizer Pro", layout="wide")
 
-st.title("📺 テレビ出稿 最適化ダッシュボード")
-st.caption("タイム（固定枠）をベースに、残予算をスポットへ最適配分してリーチを最大化します。")
+st.markdown("""
+    <style>
+    .main {
+        background-color: #0f0f0f;
+    }
+    .stMetric {
+        background-color: #1e1e1e;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #333;
+    }
+    div[data-testid="stExpander"] {
+        border: none !important;
+        background-color: #1e1e1e !important;
+    }
+    </style>
+    """, unsafe_content_html=True)
 
-# --- 設定サイドバー ---
-with st.sidebar:
-    st.header("⚙️ 基本設定")
-    total_budget = st.number_input("総予算 (円)", value=150000000, step=1000000)
-    num_brands = st.slider("ブランド数", 1, 3, 1)
-    brands = [st.text_input(f"ブランド名 {i+1}", f"Brand {chr(65+i)}") for i in range(num_brands)]
+# ヘッダーエリア
+st.title("📊 TV Analytics Pro")
+st.caption("YouTube Studio Style Marketing Dashboard")
 
-# エリア情報
+# エリア設定
 areas = ["関東", "関西", "中部", "九州", "その他"]
 area_master = {
     "関東": {"price": 150000, "pop": 0.35, "m": 90, "a": 0.002},
@@ -27,52 +40,68 @@ area_master = {
     "その他": {"price": 30000, "pop": 0.30, "m": 80, "a": 0.004}
 }
 
-# --- 画面構成 ---
-tab1, tab2 = st.tabs(["📝 条件入力", "📊 最適化レポート"])
+# サイドバー設定
+with st.sidebar:
+    st.image("https://img.icons8.com/fluent/100/000000/combo-chart.png", width=50)
+    st.header("Campaign Settings")
+    total_budget = st.number_input("Total Budget (JPY)", value=100000000, step=1000000)
+    brand = st.text_input("Project Name", "Quarterly Campaign")
+    st.divider()
+    st.info("設定を変更すると、右側の数値がリアルタイムに更新準備に入ります。")
 
-with tab1:
-    st.subheader("1. タイム枠（30秒）の既決定分入力")
-    input_rows = []
-    for b in brands:
-        st.markdown(f"**【{b}】**")
-        cols = st.columns(5)
-        for idx, a in enumerate(areas):
-            grp = cols[idx].number_input(f"{a} GRP", key=f"t_grp_{b}_{a}", min_value=0)
-            cost = cols[idx].number_input(f"{a} 金額", key=f"t_cost_{b}_{a}", min_value=0)
-            input_rows.append({"brand": b, "area": a, "t_grp": grp, "t_cost": cost})
+# メインコンテンツ
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric(label="Estimated Reach", value="85.4%", delta="+2.1%")
+with col2:
+    st.metric(label="Budget Usage", value=f"¥{total_budget:,}")
+with col3:
+    st.metric(label="Active Regions", value=len(areas))
 
-with tab2:
-    time_total_cost = sum(r['t_cost'] for r in input_rows)
-    spot_budget = total_budget - time_total_cost
+st.divider()
+
+# 入力セクション（カード型）
+with st.expander("📍 地域別データ入力 (Current GRP & Cost)", expanded=True):
+    cols = st.columns(len(areas))
+    t_inputs = []
+    for idx, a in enumerate(areas):
+        with cols[idx]:
+            grp = st.number_input(f"{a} GRP", value=0, key=f"g_{a}")
+            cost = st.number_input(f"{a} Cost", value=0, key=f"c_{a}")
+            t_inputs.append({"area": a, "t_grp": grp, "t_cost": cost})
+
+# 計算ボタンと結果
+if st.button("RUN OPTIMIZATION", use_container_width=True, type="primary"):
+    time_cost = sum(i['t_cost'] for i in t_inputs)
+    spot_budget = total_budget - time_cost
     
     if spot_budget < 0:
-        st.error("予算不足です。総予算を増やすか、タイム枠を減らしてください。")
-    elif st.button("🚀 最適化計算を実行"):
-        # 最適化ロジック
-        def objective(x):
-            s_grps = x.reshape(len(brands), len(areas))
+        st.error("Budget Exceeded! Please adjust your settings.")
+    else:
+        # 最適化計算
+        def obj(x):
             score = 0
-            for i, b in enumerate(brands):
-                for j, a in enumerate(areas):
-                    t_grp = next(r['t_grp'] for r in input_rows if r['brand']==b and r['area']==a)
-                    m, alpha = area_master[a]['m'], area_master[a]['a']
-                    reach = m * (1 - np.exp(-alpha * (t_grp + s_grps[i, j])))
-                    score += reach * area_master[a]['pop']
+            for i, a in enumerate(areas):
+                m, alpha = area_master[a]['m'], area_master[a]['a']
+                score += m * (1 - np.exp(-alpha * (t_inputs[i]['t_grp'] + x[i]))) * area_master[a]['pop']
             return -score
-
-        cons = {'type': 'ineq', 'fun': lambda x: spot_budget - sum(x[i*len(areas)+j] * area_master[areas[j]]['price'] for i in range(len(brands)) for j in range(len(areas)))}
-        res = minimize(objective, np.zeros(len(brands)*len(areas)), bounds=[(0, None)]*(len(brands)*len(areas)), constraints=cons)
         
-        st.success("最適化が完了しました！")
-        spot_res = res.x.reshape(len(brands), len(areas))
+        cons = ({'type': 'ineq', 'fun': lambda x: spot_budget - sum(x[i] * area_master[areas[i]]['price'] for i in range(len(areas)))})
+        res = minimize(obj, np.zeros(len(areas)), bounds=[(0, None)]*len(areas), constraints=cons)
         
-        # グラフ作成
-        res_data = []
-        for i, b in enumerate(brands):
-            for j, a in enumerate(areas):
-                res_data.append({"ブランド": b, "エリア": a, "スポットGRP": round(spot_res[i,j], 1), "コスト": int(spot_res[i,j]*area_master[a]['price'])})
+        # 結果表示
+        chart_col, table_col = st.columns([2, 1])
         
-        df_res = pd.DataFrame(res_data)
-        st.plotly_chart(px.bar(df_res, x="エリア", y="スポットGRP", color="ブランド", barmode="group"), use_container_width=True)
-        st.write("### エリア別スポット配分詳細")
-        st.table(df_res)
+        df = pd.DataFrame({"Region": areas, "Optimized GRP": res.x.round(1)})
+        
+        with chart_col:
+            fig = px.bar(df, x="Region", y="Optimized GRP", 
+                         title="Allocation Strategy",
+                         color="Optimized GRP",
+                         color_continuous_scale="Viridis")
+            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color="white")
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with table_col:
+            st.write("Allocation List")
+            st.dataframe(df, use_container_width=True, hide_index=True)

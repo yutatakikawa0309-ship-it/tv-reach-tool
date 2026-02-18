@@ -81,4 +81,3 @@ if st.button("GENERATE STRATEGY", use_container_width=True, type="primary"):
                          title=f"Recommended Pattern for {b['kpi']}",
                          hole=0.4, template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
-        
